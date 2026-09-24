@@ -141,19 +141,23 @@ class HrdHssStream:
         return X, Y, valid
 
     def plot(self, X, Y, file: str) -> None:
+        import matplotlib
         if file is not None:
-            import matplotlib
             matplotlib.use('Agg')
-            import matplotlib.pyplot as plt
-        else:
-            from matplotlib import pyplot as plt
-        plt.plot(X, Y)
+        import matplotlib.pyplot as plt
+        plt.plot(X, Y, linewidth=0.6)
         ax = plt.gca()
         cpbRemDel = self.hrd.InitialBP.InitialCpbRemovalDelay/90e3
         plt.vlines(cpbRemDel, 0, self.hrd.CpbSize, 'black', linestyles='dashed')
         plt.hlines(self.hrd.CpbSize, 0, X[-1],'red', linestyles='dashed')
         plt.text(0, self.hrd.CpbSize*1.01, "cpbSize", color='red')
         plt.text(cpbRemDel*1.05, self.hrd.CpbSize*0.01, 'initCpbRemDel', color='black')
+        plt.fill_between([float(x) for x in X], 0, [float(y) for y in Y], alpha=0.5, linewidth=0.5, zorder=2,)
+        
+        if len(self.hss) < 110:
+            lines = ax.vlines([timing.AuCpbNominalRemovalTime for timing in self.hss], 0, self.hrd.CpbSize, 'black', linestyles='dotted', linewidth=0.5)
+            lines.set_label('cpbRemovalTime')
+            plt.legend(loc=(0.775, 0.96), prop={'size': 6})
         ax.set_ylim(0,)
         ax.set_title("CPB usage")
         ax.set_xlabel("Time [s]")
@@ -162,7 +166,7 @@ class HrdHssStream:
         if not file:
             plt.show()
         else:
-            plt.savefig(file)
+            plt.savefig(file, dpi=350)
 
 class StreamScheduler:
     def __init__(self, hstream: HEVCParser, gop_offset: int = 0) -> None:
