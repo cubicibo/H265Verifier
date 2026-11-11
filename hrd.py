@@ -106,7 +106,7 @@ class HrdHssStream:
         hss = self.hss
         hrd = self.hrd
         assert len(hss), "Empty stream (no access unit)"
-        
+
         X = [0]
         Y = [0]
 
@@ -120,10 +120,10 @@ class HrdHssStream:
         for au_timing in hss:
             while len(X) > offset and X[offset] <= au_timing.AuCpbNominalRemovalTime:
                 offset += 1
-            
-            X[offset:offset] = [au_timing.AuCpbNominalRemovalTime]
-            Y[offset:offset] = [-1 * au_timing.AuCpbFill * hrd.BitRate]
-        
+
+            X[offset:offset] = [au_timing.AuCpbNominalRemovalTime, au_timing.AuCpbNominalRemovalTime]
+            Y[offset:offset] = [Fraction(0, 1), -1 * au_timing.AuCpbFill * hrd.BitRate]
+
         cumsum = Fraction(0, 1)
         valid = True
         for k in range(len(Y)):
