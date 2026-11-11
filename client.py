@@ -26,16 +26,16 @@ from argparse import ArgumentParser
 def dump_dpb(dpb_dump: Path, access_units: list[HEVCAccessUnit], hrd_hss: HrdHssStream) -> None:
     assert len(access_units) == len(hrd_hss.hss), f"{len(hrd_hss.hss)} {len(access_units)}" 
     from datetime import timedelta
-    
+
     tick = hrd_hss.hrd.ClockTick
     first_pts = None
-    
+
     with open(dpb_dump, 'w') as f:
         f.write(f"Display Framerate={tick**-1}\nCodedIx NUT\n")
         for k, au_timing in sorted(enumerate(hrd_hss.hss), key=lambda p: p[1].DpbOutputTime):
             if first_pts is None:
                 first_pts = au_timing.DpbOutputTime
-            f.write(f"{k:4}  {access_units[k].misc['nals'][-1].name} PTS={timedelta(seconds=float(au_timing.DpbOutputTime-first_pts))}, duration={float(au_timing.DpbDurationTicks*tick):.03f}\n")
+            f.write(f"{k:4}  {access_units[k].misc['nals'][-1].name} PTS={timedelta(seconds=float(au_timing.DpbOutputTime-first_pts))}, duration={float(au_timing.DpbDurationTicks*tick):.04f}\n")
 
 def test_conformance(args) -> tuple[HrdHssStream, bool]:
     hevc_stream = HEVCParser(args.input)
@@ -59,14 +59,14 @@ def parse_args():
             return fp
         else:
             raise FileNotFoundError("Input bitstream file does not exist.")
-            
+
     def fmt_path_output(fp: str) -> Path:
         fp = Path(fp).expanduser().resolve()
         if fp.parent.exists():
             return fp
         else:
             raise RuntimeError("Parent directory of output file does not exist.")
-    
+
     parser = ArgumentParser()
     parser.add_argument('-l', '--logfile', help="Dump the HRD datastructures to a log file.", type=fmt_path_output, required=False, default=None)
     parser.add_argument('-p', '--plot', help="Output CPB (VBV) plot to file.", type=fmt_path_output, required=False, default=None)

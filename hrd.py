@@ -47,12 +47,11 @@ class HRD:
     FixedPicRate: bool
     Cbr: bool
     InitialBP: BufferingPeriod
-    
+
     @classmethod
     def initialize(cls, au: HEVCAccessUnit) -> 'HRD':
         hrd_parameters = au.sequence_parameter_set['vui']['hrd_parameters']
         baseCpbHrdParam =  hrd_parameters['sub_layer_hrd_parameters'][0]
-        assert baseCpbHrdParam['fixed_pic_rate_general_flag'], "VFR not supported"
 
         bit_rate = (baseCpbHrdParam['bit_rate_value_minus1'] + 1) << (6 + hrd_parameters['bit_rate_scale'])
         cpb_size = (baseCpbHrdParam['cpb_size_value_minus1'] + 1) << (4 + hrd_parameters['cpb_size_scale'])
@@ -62,11 +61,11 @@ class HRD:
 
         clock_tick = Fraction(au.sequence_parameter_set['vui']['vui_num_units_in_tick'],
                               au.sequence_parameter_set['vui']['vui_time_scale'])
-    
+
         initBP = BufferingPeriod.from_sei(au.sei[SEI.BufferingPeriod])
         return cls(clock_tick, cpb_size, bit_rate, baseCpbHrdParam['fixed_pic_rate_general_flag'], baseCpbHrdParam['cbr_flag'], initBP)
 
-@dataclass(frozen=True)
+@dataclass
 class HSSAuPictureTiming:
     AuCpbEarliestArrivalTime: Fraction
     AuCpbNominalRemovalTime: Fraction
@@ -84,7 +83,6 @@ class HrdHssStream:
         """
         Test C.3.3: Picture Output
         """
-        assert self.hrd.FixedPicRate, "DPB analysis supported only with fixed pic rate"
         last_display_timestamp = None
         DisplayPicCount = 0
         is_stream_cfr = True
@@ -145,7 +143,8 @@ class HrdHssStream:
         if file is not None:
             matplotlib.use('Agg')
         import matplotlib.pyplot as plt
-        plt.plot(X, Y, linewidth=0.6)
+        plt.subplots(figsize=(12,4))
+        plt.plot([float(x) for x in X], [float(y) for y in Y], linewidth=0.6)
         ax = plt.gca()
         cpbRemDel = self.hrd.InitialBP.InitialCpbRemovalDelay/90e3
         plt.vlines(cpbRemDel, 0, self.hrd.CpbSize, 'black', linestyles='dashed')
@@ -153,7 +152,7 @@ class HrdHssStream:
         plt.text(0, self.hrd.CpbSize*1.01, "cpbSize", color='red')
         plt.text(cpbRemDel*1.05, self.hrd.CpbSize*0.01, 'initCpbRemDel', color='black')
         plt.fill_between([float(x) for x in X], 0, [float(y) for y in Y], alpha=0.5, linewidth=0.5, zorder=2,)
-        
+
         if len(self.hss) < 110:
             lines = ax.vlines([timing.AuCpbNominalRemovalTime for timing in self.hss], 0, self.hrd.CpbSize, 'black', linestyles='dotted', linewidth=0.5)
             lines.set_label('cpbRemovalTime')
@@ -172,7 +171,7 @@ class StreamScheduler:
     def __init__(self, hstream: HEVCParser, gop_offset: int = 0) -> None:
         self._stream = hstream
         self.gop_offset = gop_offset
-    
+
     def get_au_iterable(self) -> Iterable[HEVCAccessUnit]:
         iau = iter(self._stream)
 
@@ -190,7 +189,7 @@ class StreamScheduler:
     def get_hrd(self) -> HRD | None:
         for au in self.get_au_iterable():
             if SEI.BufferingPeriod in au.sei:
-                return HRD.initialize(au)        
+                return HRD.initialize(au)
 
     def get_all_access_units(self) -> None:
         stream = []
@@ -221,7 +220,7 @@ class StreamScheduler:
                     valid = bp.InitialCpbRemovalDelay <= ceiled_delta_time
                     if hrd.Cbr:
                         valid = valid and int(delta_time) <= bp.InitialCpbRemovalDelay
-                    
+
                     if not valid:
                         print(f"Access Unit {k} with Buffering Period SEI breaches C-17/18: InitialCpbRemovalDelay={bp.InitialCpbRemovalDelay} > deltaTime90k={ceiled_delta_time}.")
                         all_valid = False
@@ -246,9 +245,9 @@ class StreamScheduler:
                     initialize_hrd = True
                 else:
                     continue
-            
+
             picture_timing = au.sei[SEI.PictureTiming]
-        
+
             if initialize_hrd:
                 buffering_period = BufferingPeriod.from_sei(au.sei[SEI.BufferingPeriod])
                 AuNominalRemovalTime = Fraction(buffering_period.InitialCpbRemovalDelay, MPEGClock.PTS) # C-9
@@ -256,28 +255,28 @@ class StreamScheduler:
                 initArrivalEarliestTime = Fraction(0, 1)
             else:
                 AuCpbRemovalDelay = 1 + picture_timing['au_cpb_removal_delay_minus1']
-    
+
                 # C-10
                 AuNominalRemovalTime = AuNominalRemovalTimeFirstPicInThisBuffPeriod
                 AuNominalRemovalTime += hrd.ClockTick * AuCpbRemovalDelay
-    
+
                 initArrivalEarliestTime = AuNominalRemovalTime
                 if has_buffering_period:
                     buffering_period = BufferingPeriod.from_sei(au.sei[SEI.BufferingPeriod])
                     initArrivalEarliestTime -= Fraction(buffering_period.InitialCpbRemovalDelay, MPEGClock.PTS) # Eq. C-7
-    
+
                     # update for subsequent pictures in this buffering period
                     AuNominalRemovalTimeFirstPicInThisBuffPeriod = AuNominalRemovalTime
                 else:
                     # C-6
                     initArrivalEarliestTime -= Fraction(buffering_period.InitialCpbRemovalDelay + buffering_period.InitialCpbRemovalDelayOffset, MPEGClock.PTS) # Eq. C-6
-    
+
             # C-15
             DpbOutputTime = AuNominalRemovalTime + picture_timing['pic_dpb_output_delay'] * hrd.ClockTick
 
             # C-7 Picture can only arrive after the previous
             initArrivalTime = max(initArrivalEarliestTime, AuFinalArrivalTime)
-    
+
             # C-8 duration of the fill for this access unit
             AuCpbFill = Fraction(8*au.size, hrd.BitRate)
             AuFinalArrivalTime = initArrivalTime + AuCpbFill
@@ -285,8 +284,13 @@ class StreamScheduler:
             # no low delay, the last possible arrival time is the cpb removal time
             if AuFinalArrivalTime > AuNominalRemovalTime:
                 print(f"CPB underflow for access unit {len(hss_timing)}")
-            
+
             # returns progressive if frame_field_info chunk is not present
             DpbDurationTicks = [1, 1, 1, 2, 2, 3, 3, 2, 3, 1, 1, 1, 1][picture_timing.get('pic_struct', 0)]
             hss_timing.append(HSSAuPictureTiming(initArrivalTime, AuNominalRemovalTime, DpbOutputTime, AuCpbFill, AuFinalArrivalTime, DpbDurationTicks))
+
+        if not hrd.FixedPicRate:
+            for pic, nextpic in pairwise(sorted(hss_timing, key=lambda au: au.DpbOutputTime)):
+                pic.DpbDurationTicks = (nextpic.DpbOutputTime - pic.DpbOutputTime) / hrd.ClockTick
+            # last pic use pic_struct duration (1 tick if unspecified)
         return HrdHssStream(hrd, hss_timing)
